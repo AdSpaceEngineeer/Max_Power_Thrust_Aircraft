@@ -1,0 +1,141 @@
+# This code computes and plots Pr, Pa, Px and Rate of Climb by altitude for Lockheed Constellation aircraft
+# This code also indicates the absolute ceiling and service ceiling (ROC = 500 ft/min)
+
+import math as m
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+#custom function to get P, T, rho given h in Earth standard dry air atmosphere model
+
+g0 = 32.174         # feet per square seconds, std grav acceleration
+R = 1716.5          # feet square per second square per deg Rankine, specific gas constant of air
+F_to_R = 459.67     # to convert deg Fahrenheit to deg Rankine, R = F + 459.67
+a = -0.00357        # deg Rankine per feet, environmental lapse rate
+P_sl = 2116.22      # pounds per square feet, pressure at sea level
+rho_sl = 2.3769e-3  # slugs per cubic feet, density at sea level
+T_sl = 59           # deg Fahrenheit, Temperature at sea level
+T_trop = -69.7      # deg Fahrenheit, Temperature at 36000 feet
+P_trop = 474.59       # pounds per square feet, pressure at 36000 feet
+rho_trop = 7.0864e-4  # slugs per cubic feet, density at 36000 feet
+
+def get_PTrho_given_altitude(h,g0,R,P_sl,rho_sl,F_to_R,a,T_sl,T_trop,P_trop,rho_trop):
+    if h < 36000 :
+        T1 = T_sl + F_to_R                     # deg Rankine, Temperature at sea level
+        T = T1 + a*h                         # deg Rankine, Temperature at h
+        P = P_sl * ( T / T1 )**(-1*g0/(R*a))              # pounds per square feet, Pressure at h
+        rho = rho_sl * ( T / T1 )**(-1*(g0/(R*a) + 1))    # slug per cubic fe   et, Density at h
+    
+    elif h >= 36000 and h < 82000 :          # isotherml region of stratosphere
+        h0 = 36000                           # feet, altitude at tropopause
+        T = T_trop + F_to_R                   # deg Rankine, Temperature at 36000 feet
+        P = P_trop * m.e**(-1*g0*(h - h0)/(R*T))        # pounds per square feet, Pressure at h
+        rho = rho_trop * m.e**(-1*g0*(h - h0)/(R*T))    # slug per feet cube, Density at h
+    
+    return [P, T - F_to_R, rho]     #return Pressure in lb/ft2, Temperature in degF and Density in slugs/ft3
+
+
+nu = 0.9        # propeller efficiency
+Ps_sl = 3250    # hp, shaft brake power of 1 engine
+engine_num = 4  # number of engines on aircraft
+CD0 = 0.011     # parasite drag coefficient
+e0 = 0.78       # Oswald's efficiency factor
+AR = 9.17       # aspect ratio of aircraft
+S = 1654        # ft^2, planform area of aircraft
+W = 100000      # lbf, weight of aircraft
+lbffts_to_hp = 60/33000   # power units transform from lbf.ft.s-1 to horsepower
+
+# compute CL and CD where Px is max i.e. 'CL^1.5 / CD' is max
+CL_pxmax = (3 * m.pi * e0 * AR * CD0)**0.5
+print("value of CL where 'CL^1.5/CD' is max :", CL_pxmax)
+CD_pxmax = 4 * CD0
+print("value of CD where 'CL^1.5/CD' is max :", CD_pxmax)
+
+# plotting Pr_min, P_avail vs Altitude 'h':
+# 'CL^1.5 / CD' max
+CL_CD_pxmax = CL_pxmax**1.5 / CD_pxmax
+print("value of 'CL^1.5/CD' is max :", CL_CD_pxmax, "\n")
+
+# range of altitudes
+h_list = range(1,45001,1)
+Pr_min_list = []
+Pr_min_list_hp = []
+P_avail_list = []
+P_avail_list_hp = []
+
+# compute Pr_min, P_avail in lbf.ft.s-1 and hp:
+for h in h_list:
+    rho_slug = get_PTrho_given_altitude(h,g0,R,P_sl,rho_sl,F_to_R,a,T_sl,T_trop,P_trop,rho_trop)[2]
+    #if h%5000==0: print("height :",h," ft, and density :", rho_slug, "slug.ft-3")
+    Pr_min = (W**1.5 * (2/(rho_slug*S))**0.5 )/CL_CD_pxmax
+    Pr_min_list.append(Pr_min)
+    Pr_min_list_hp.append(Pr_min * lbffts_to_hp)
+    Ps = engine_num * (rho_slug/rho_sl)*Ps_sl/lbffts_to_hp
+    P_avail = nu * Ps
+    #if h%5000==0: print("Pr_min is :", Pr_min, " lbf.ft/s, and P_avail is :",P_avail, " lbf.ft/s")
+    P_avail_list.append(P_avail)
+    P_avail_list_hp.append(P_avail * lbffts_to_hp)
+
+# create plot
+plt.figure(figsize=(5, 5))
+plt.plot(Pr_min_list_hp, h_list, color = 'red', label = 'Min Power Required')
+plt.plot(P_avail_list_hp, h_list, color = 'green', label = 'Max Power Available')
+plt.xlabel("Power / hp")
+plt.ylabel("Altitude / ft")
+plt.title("Power Required & Available vs Altitude for R-3350-DA3 \n", fontsize = 12)
+plt.legend(fontsize = 8, bbox_to_anchor=(1, 1))
+plt.ylim(0, 50000)
+plt.show()
+
+#compute and plot P_excess_max vs altitude
+Px_max_hp_list = []
+for i in range(len(h_list)):
+    Px_max_hp = P_avail_list_hp[i] - Pr_min_list_hp[i]
+    Px_max_hp_list.append(Px_max_hp)
+
+# create plot
+plt.figure(figsize=(5, 5))
+plt.plot(Px_max_hp_list, h_list, color = 'orange', label = 'Max Excess Power')
+plt.axvline(0,0,50000, color = 'gray', linestyle = 'dotted', label = 'Px_max = 0')
+plt.xlabel("Power / hp")
+plt.ylabel("Altitude / ft")
+plt.title("Maximum Excess Power vs Altitude for R-3350-DA3 \n", fontsize = 12)
+plt.legend(fontsize = 8, bbox_to_anchor=(1, 1))
+plt.ylim(0, 50000)
+plt.show()
+
+# compute and plot maximum rate of climb
+ROC_max_ftmin_list = []
+for i in range(len(h_list)):
+    Px_max_lbffts = Px_max_hp_list[i]/lbffts_to_hp
+    ROC_max_fts = Px_max_lbffts/W
+    ROC_max_ftmin = ROC_max_fts * 60
+    ROC_max_ftmin_list.append(ROC_max_ftmin)
+
+# create plot
+plt.figure(figsize=(5, 5))
+plt.plot(ROC_max_ftmin_list, h_list, color = 'purple', label = 'Max Rate of Climb')
+plt.axvline(0,0,50000, color = 'gray', linestyle = 'dotted', label = 'R/C_max = 0')
+plt.xlabel("Rate of Climb / ft.min-1")
+plt.ylabel("Altitude / ft")
+plt.title("Maximum Rate of Climb vs Altitude for R-3350-DA3 \n", fontsize = 12)
+plt.legend(fontsize = 8, bbox_to_anchor=(1, 1))
+plt.ylim(0, 50000)
+plt.show()
+
+#find absolute ceiling to nearest integer in feet
+# at h_abs, ROC_max = 0
+
+for i in range(len(h_list)):
+    if ROC_max_ftmin_list[i]<0:
+        print ("Absolute ceiling is ",h_list[i-1],"ft, where Rate of Climb is", ROC_max_ftmin_list[i-1]," i.e. nearly 0.00 ft/min.")
+        break
+
+print("\n")
+
+#find service ceiling to nearest integer in feet
+# at h_svc, ROC = 500 ft/min
+for i in range(len(h_list)):
+    if ROC_max_ftmin_list[i]<500:
+        print ("Service ceiling is ",h_list[i],"ft, where Rate of Climb is", ROC_max_ftmin_list[i]," i.e. nearly 500.00 ft/min.")
+        break
